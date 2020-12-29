@@ -254,9 +254,7 @@ public class Client extends Thread {
                 }
             }
 
-            synchronized (_xServer) {
-                processRequest(opcode, arg, bytesRemaining);
-            }
+            processRequest(opcode, arg, bytesRemaining);
         }
     }
 
@@ -282,28 +280,30 @@ public class Client extends Thread {
         _sequenceNumber++;
         switch (opcode) {
             case RequestCode.CreateWindow:
-                if (bytesRemaining < 28) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    int id = _inputOutput.readInt();    // Window ID.
-                    int parent = _inputOutput.readInt();    // Parent.
-                    Resource r = _xServer.getResource(parent);
-
-                    bytesRemaining -= 8;
-                    if (!validResourceId(id)) {
+                synchronized (_xServer) {
+                    if (bytesRemaining < 28) {
                         _inputOutput.readSkip(bytesRemaining);
-                        ErrorCode.write(this, ErrorCode.IDChoice, opcode, id);
-                    } else if (r == null || r.getType() != Resource.WINDOW) {
-                        _inputOutput.readSkip(bytesRemaining);
-                        ErrorCode.write(this, ErrorCode.Window, opcode, parent);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
                     } else {
-                        Window w = (Window) r;
+                        int id = _inputOutput.readInt();    // Window ID.
+                        int parent = _inputOutput.readInt();    // Parent.
+                        Resource r = _xServer.getResource(parent);
 
-                        w.processCreateWindowRequest(_inputOutput, this, _sequenceNumber, id, arg, bytesRemaining);
+                        bytesRemaining -= 8;
+                        if (!validResourceId(id)) {
+                            _inputOutput.readSkip(bytesRemaining);
+                            ErrorCode.write(this, ErrorCode.IDChoice, opcode, id);
+                        } else if (r == null || r.getType() != Resource.WINDOW) {
+                            _inputOutput.readSkip(bytesRemaining);
+                            ErrorCode.write(this, ErrorCode.Window, opcode, parent);
+                        } else {
+                            Window w = (Window) r;
+
+                            w.processCreateWindowRequest(_inputOutput, this, _sequenceNumber, id, arg, bytesRemaining);
+                        }
                     }
+                    break;
                 }
-                break;
             case RequestCode.ChangeWindowAttributes:
             case RequestCode.GetWindowAttributes:
             case RequestCode.DestroyWindow:
@@ -327,21 +327,23 @@ public class Client extends Thread {
             case RequestCode.ClearArea:
             case RequestCode.ListInstalledColormaps:
             case RequestCode.RotateProperties:
-                if (bytesRemaining < 4) {
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    int id = _inputOutput.readInt();
-                    Resource r = _xServer.getResource(id);
-
-                    bytesRemaining -= 4;
-                    if (r == null || r.getType() != Resource.WINDOW) {
-                        _inputOutput.readSkip(bytesRemaining);
-                        ErrorCode.write(this, ErrorCode.Window, opcode, id);
+                synchronized (_xServer) {
+                    if (bytesRemaining < 4) {
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
                     } else {
-                        r.processRequest(this, opcode, arg, bytesRemaining);
+                        int id = _inputOutput.readInt();
+                        Resource r = _xServer.getResource(id);
+
+                        bytesRemaining -= 4;
+                        if (r == null || r.getType() != Resource.WINDOW) {
+                            _inputOutput.readSkip(bytesRemaining);
+                            ErrorCode.write(this, ErrorCode.Window, opcode, id);
+                        } else {
+                            r.processRequest(this, opcode, arg, bytesRemaining);
+                        }
                     }
+                    break;
                 }
-                break;
             case RequestCode.GetGeometry:
             case RequestCode.CopyArea:
             case RequestCode.CopyPlane:
@@ -360,32 +362,40 @@ public class Client extends Thread {
             case RequestCode.ImageText8:
             case RequestCode.ImageText16:
             case RequestCode.QueryBestSize:
-                if (bytesRemaining < 4) {
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    int id = _inputOutput.readInt();
-                    Resource r = _xServer.getResource(id);
-
-                    bytesRemaining -= 4;
-                    if (r == null || !r.isDrawable()) {
-                        _inputOutput.readSkip(bytesRemaining);
-                        ErrorCode.write(this, ErrorCode.Drawable, opcode, id);
+                synchronized (_xServer) {
+                    if (bytesRemaining < 4) {
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
                     } else {
-                        r.processRequest(this, opcode, arg, bytesRemaining);
+                        int id = _inputOutput.readInt();
+                        Resource r = _xServer.getResource(id);
+
+                        bytesRemaining -= 4;
+                        if (r == null || !r.isDrawable()) {
+                            _inputOutput.readSkip(bytesRemaining);
+                            ErrorCode.write(this, ErrorCode.Drawable, opcode, id);
+                        } else {
+                            r.processRequest(this, opcode, arg, bytesRemaining);
+                        }
                     }
+                    break;
                 }
-                break;
             case RequestCode.InternAtom:
-                Atom.processInternAtomRequest(_xServer, this, arg, bytesRemaining);
-                break;
+                synchronized (_xServer) {
+                    Atom.processInternAtomRequest(_xServer, this, arg, bytesRemaining);
+                    break;
+                }
             case RequestCode.GetAtomName:
-                Atom.processGetAtomNameRequest(_xServer, this, bytesRemaining);
-                break;
+                synchronized (_xServer) {
+                    Atom.processGetAtomNameRequest(_xServer, this, bytesRemaining);
+                    break;
+                }
             case RequestCode.GetSelectionOwner:
             case RequestCode.SetSelectionOwner:
             case RequestCode.ConvertSelection:
-                Selection.processRequest(_xServer, this, opcode, bytesRemaining);
-                break;
+                synchronized (_xServer) {
+                    Selection.processRequest(_xServer, this, opcode, bytesRemaining);
+                    break;
+                }
             case RequestCode.SendEvent:
             case RequestCode.GrabPointer:
             case RequestCode.UngrabPointer:
@@ -399,204 +409,236 @@ public class Client extends Thread {
             case RequestCode.AllowEvents:
             case RequestCode.SetInputFocus:
             case RequestCode.GetInputFocus:
-                _xServer.getScreen().processRequest(_xServer, this, opcode, arg, bytesRemaining);
-                break;
+                synchronized (_xServer) {
+                    _xServer.getScreen().processRequest(_xServer, this, opcode, arg, bytesRemaining);
+                    break;
+                }
             case RequestCode.GrabServer:
-                if (bytesRemaining != 0) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    _xServer.grabServer(this);
+                synchronized (_xServer) {
+                    if (bytesRemaining != 0) {
+                        _inputOutput.readSkip(bytesRemaining);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
+                    } else {
+                        _xServer.grabServer(this);
+                    }
+                    break;
                 }
-                break;
             case RequestCode.UngrabServer:
-                if (bytesRemaining != 0) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    _xServer.ungrabServer(this);
+                synchronized (_xServer) {
+                    if (bytesRemaining != 0) {
+                        _inputOutput.readSkip(bytesRemaining);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
+                    } else {
+                        _xServer.ungrabServer(this);
+                    }
+                    break;
                 }
-                break;
             case RequestCode.WarpPointer:
             case RequestCode.ChangePointerControl:
             case RequestCode.GetPointerControl:
             case RequestCode.SetPointerMapping:
             case RequestCode.GetPointerMapping:
-                _xServer.getPointer().processRequest(_xServer, this, opcode, arg, bytesRemaining);
-                break;
+                synchronized (_xServer) {
+                    _xServer.getPointer().processRequest(_xServer, this, opcode, arg, bytesRemaining);
+                    break;
+                }
             case RequestCode.OpenFont:
-                if (bytesRemaining < 8) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    int id = _inputOutput.readInt();    // Font ID.
-
-                    bytesRemaining -= 4;
-                    if (!validResourceId(id)) {
+                synchronized (_xServer) {
+                    if (bytesRemaining < 8) {
                         _inputOutput.readSkip(bytesRemaining);
-                        ErrorCode.write(this, ErrorCode.IDChoice, opcode, id);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
                     } else {
-                        Font.processOpenFontRequest(_xServer, this, id, bytesRemaining);
-                    }
-                }
-                break;
-            case RequestCode.CloseFont:
-                if (bytesRemaining != 4) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    int id = _inputOutput.readInt();
-                    Resource r = _xServer.getResource(id);
+                        int id = _inputOutput.readInt();    // Font ID.
 
-                    bytesRemaining -= 4;
-                    if (r == null || r.getType() != Resource.FONT)
-                        ErrorCode.write(this, ErrorCode.Font, opcode, id);
-                    else r.processRequest(this, opcode, arg, bytesRemaining);
-                }
-                break;
-            case RequestCode.QueryFont:
-            case RequestCode.QueryTextExtents:
-                if (bytesRemaining != 4) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    int id = _inputOutput.readInt();
-                    Resource r = _xServer.getResource(id);
-
-                    bytesRemaining -= 4;
-                    if (r == null || !r.isFontable()) {
-                        _inputOutput.readSkip(bytesRemaining);
-                        ErrorCode.write(this, ErrorCode.Font, opcode, id);
-                    } else {
-                        r.processRequest(this, opcode, arg, bytesRemaining);
-                    }
-                }
-                break;
-            case RequestCode.ListFonts:
-            case RequestCode.ListFontsWithInfo:
-                Font.processListFonts(this, opcode, bytesRemaining);
-                break;
-            case RequestCode.SetFontPath:
-                Font.processSetFontPath(_xServer, this, bytesRemaining);
-                break;
-            case RequestCode.GetFontPath:
-                if (bytesRemaining != 0) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    Font.processGetFontPath(_xServer, this);
-                }
-                break;
-            case RequestCode.CreatePixmap:
-                if (bytesRemaining != 12) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    int id = _inputOutput.readInt();    // Pixmap ID.
-                    int did = _inputOutput.readInt();    // Drawable ID.
-                    int width = _inputOutput.readShort();    // Width.
-                    int height = _inputOutput.readShort();    // Height.
-                    Resource r = _xServer.getResource(did);
-
-                    if (!validResourceId(id)) {
-                        ErrorCode.write(this, ErrorCode.IDChoice, opcode, id);
-                    } else if (r == null || !r.isDrawable()) {
-                        ErrorCode.write(this, ErrorCode.Drawable, opcode, did);
-                    } else {
-                        try {
-                            Pixmap.processCreatePixmapRequest(_xServer, this, id, width, height, arg, r);
-                        } catch (OutOfMemoryError e) {
-                            ErrorCode.write(this, ErrorCode.Alloc, opcode, 0);
+                        bytesRemaining -= 4;
+                        if (!validResourceId(id)) {
+                            _inputOutput.readSkip(bytesRemaining);
+                            ErrorCode.write(this, ErrorCode.IDChoice, opcode, id);
+                        } else {
+                            Font.processOpenFontRequest(_xServer, this, id, bytesRemaining);
                         }
                     }
+                    break;
                 }
-                break;
-            case RequestCode.FreePixmap:
-                if (bytesRemaining != 4) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    int id = _inputOutput.readInt();
-                    Resource r = _xServer.getResource(id);
-
-                    bytesRemaining -= 4;
-                    if (r == null || r.getType() != Resource.PIXMAP)
-                        ErrorCode.write(this, ErrorCode.Pixmap, opcode, id);
-                    else r.processRequest(this, opcode, arg, bytesRemaining);
-                }
-                break;
-            case RequestCode.CreateGC:
-                if (bytesRemaining < 12) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    int id = _inputOutput.readInt();    // GContext ID.
-                    int d = _inputOutput.readInt();    // Drawable ID.
-                    Resource r = _xServer.getResource(d);
-
-                    bytesRemaining -= 8;
-                    if (!validResourceId(id)) {
+            case RequestCode.CloseFont:
+                synchronized (_xServer) {
+                    if (bytesRemaining != 4) {
                         _inputOutput.readSkip(bytesRemaining);
-                        ErrorCode.write(this, ErrorCode.IDChoice, opcode, id);
-                    } else if (r == null || !r.isDrawable()) {
-                        _inputOutput.readSkip(bytesRemaining);
-                        ErrorCode.write(this, ErrorCode.Drawable, opcode, d);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
                     } else {
-                        GContext.processCreateGCRequest(_xServer, this, id, bytesRemaining);
+                        int id = _inputOutput.readInt();
+                        Resource r = _xServer.getResource(id);
+
+                        bytesRemaining -= 4;
+                        if (r == null || r.getType() != Resource.FONT)
+                            ErrorCode.write(this, ErrorCode.Font, opcode, id);
+                        else r.processRequest(this, opcode, arg, bytesRemaining);
                     }
+                    break;
                 }
-                break;
+            case RequestCode.QueryFont:
+            case RequestCode.QueryTextExtents:
+                synchronized (_xServer) {
+                    if (bytesRemaining != 4) {
+                        _inputOutput.readSkip(bytesRemaining);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
+                    } else {
+                        int id = _inputOutput.readInt();
+                        Resource r = _xServer.getResource(id);
+
+                        bytesRemaining -= 4;
+                        if (r == null || !r.isFontable()) {
+                            _inputOutput.readSkip(bytesRemaining);
+                            ErrorCode.write(this, ErrorCode.Font, opcode, id);
+                        } else {
+                            r.processRequest(this, opcode, arg, bytesRemaining);
+                        }
+                    }
+                    break;
+                }
+            case RequestCode.ListFonts:
+            case RequestCode.ListFontsWithInfo:
+                synchronized (_xServer) {
+                    Font.processListFonts(this, opcode, bytesRemaining);
+                    break;
+                }
+            case RequestCode.SetFontPath:
+                synchronized (_xServer) {
+                    Font.processSetFontPath(_xServer, this, bytesRemaining);
+                    break;
+                }
+            case RequestCode.GetFontPath:
+                synchronized (_xServer) {
+                    if (bytesRemaining != 0) {
+                        _inputOutput.readSkip(bytesRemaining);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
+                    } else {
+                        Font.processGetFontPath(_xServer, this);
+                    }
+                    break;
+                }
+            case RequestCode.CreatePixmap:
+                synchronized (_xServer) {
+                    if (bytesRemaining != 12) {
+                        _inputOutput.readSkip(bytesRemaining);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
+                    } else {
+                        int id = _inputOutput.readInt();    // Pixmap ID.
+                        int did = _inputOutput.readInt();    // Drawable ID.
+                        int width = _inputOutput.readShort();    // Width.
+                        int height = _inputOutput.readShort();    // Height.
+                        Resource r = _xServer.getResource(did);
+
+                        if (!validResourceId(id)) {
+                            ErrorCode.write(this, ErrorCode.IDChoice, opcode, id);
+                        } else if (r == null || !r.isDrawable()) {
+                            ErrorCode.write(this, ErrorCode.Drawable, opcode, did);
+                        } else {
+                            try {
+                                Pixmap.processCreatePixmapRequest(_xServer, this, id, width, height, arg, r);
+                            } catch (OutOfMemoryError e) {
+                                ErrorCode.write(this, ErrorCode.Alloc, opcode, 0);
+                            }
+                        }
+                    }
+                    break;
+                }
+            case RequestCode.FreePixmap:
+                synchronized (_xServer) {
+                    if (bytesRemaining != 4) {
+                        _inputOutput.readSkip(bytesRemaining);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
+                    } else {
+                        int id = _inputOutput.readInt();
+                        Resource r = _xServer.getResource(id);
+
+                        bytesRemaining -= 4;
+                        if (r == null || r.getType() != Resource.PIXMAP)
+                            ErrorCode.write(this, ErrorCode.Pixmap, opcode, id);
+                        else r.processRequest(this, opcode, arg, bytesRemaining);
+                    }
+                    break;
+                }
+            case RequestCode.CreateGC:
+                synchronized (_xServer) {
+                    if (bytesRemaining < 12) {
+                        _inputOutput.readSkip(bytesRemaining);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
+                    } else {
+                        int id = _inputOutput.readInt();    // GContext ID.
+                        int d = _inputOutput.readInt();    // Drawable ID.
+                        Resource r = _xServer.getResource(d);
+
+                        bytesRemaining -= 8;
+                        if (!validResourceId(id)) {
+                            _inputOutput.readSkip(bytesRemaining);
+                            ErrorCode.write(this, ErrorCode.IDChoice, opcode, id);
+                        } else if (r == null || !r.isDrawable()) {
+                            _inputOutput.readSkip(bytesRemaining);
+                            ErrorCode.write(this, ErrorCode.Drawable, opcode, d);
+                        } else {
+                            GContext.processCreateGCRequest(_xServer, this, id, bytesRemaining);
+                        }
+                    }
+                    break;
+                }
             case RequestCode.ChangeGC:
             case RequestCode.CopyGC:
             case RequestCode.SetDashes:
             case RequestCode.SetClipRectangles:
             case RequestCode.FreeGC:
-                if (bytesRemaining < 4) {
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    int id = _inputOutput.readInt();
-                    Resource r = _xServer.getResource(id);
-
-                    bytesRemaining -= 4;
-                    if (r == null || r.getType() != Resource.GCONTEXT) {
-                        _inputOutput.readSkip(bytesRemaining);
-                        ErrorCode.write(this, ErrorCode.GContext, opcode, id);
+                synchronized (_xServer) {
+                    if (bytesRemaining < 4) {
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
                     } else {
-                        r.processRequest(this, opcode, arg, bytesRemaining);
+                        int id = _inputOutput.readInt();
+                        Resource r = _xServer.getResource(id);
+
+                        bytesRemaining -= 4;
+                        if (r == null || r.getType() != Resource.GCONTEXT) {
+                            _inputOutput.readSkip(bytesRemaining);
+                            ErrorCode.write(this, ErrorCode.GContext, opcode, id);
+                        } else {
+                            r.processRequest(this, opcode, arg, bytesRemaining);
+                        }
                     }
+                    break;
                 }
-                break;
             case RequestCode.CreateColormap:
-                if (bytesRemaining != 12) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    int id = _inputOutput.readInt();    // Colormap ID.
-
-                    bytesRemaining -= 4;
-                    if (!validResourceId(id)) {
+                synchronized (_xServer) {
+                    if (bytesRemaining != 12) {
                         _inputOutput.readSkip(bytesRemaining);
-                        ErrorCode.write(this, ErrorCode.IDChoice, opcode, id);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
                     } else {
-                        Colormap.processCreateColormapRequest(_xServer, this, id, arg);
-                    }
-                }
-                break;
-            case RequestCode.CopyColormapAndFree:
-                if (bytesRemaining != 8) {
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    int id1 = _inputOutput.readInt();
-                    int id2 = _inputOutput.readInt();
-                    Resource r = _xServer.getResource(id2);
+                        int id = _inputOutput.readInt();    // Colormap ID.
 
-                    if (r == null || r.getType() != Resource.COLORMAP)
-                        ErrorCode.write(this, ErrorCode.Colormap, opcode, id2);
-                    else if (!validResourceId(id1))
-                        ErrorCode.write(this, ErrorCode.IDChoice, opcode, id1);
-                    else ((Colormap) r).processCopyColormapAndFree(this, id1);
+                        bytesRemaining -= 4;
+                        if (!validResourceId(id)) {
+                            _inputOutput.readSkip(bytesRemaining);
+                            ErrorCode.write(this, ErrorCode.IDChoice, opcode, id);
+                        } else {
+                            Colormap.processCreateColormapRequest(_xServer, this, id, arg);
+                        }
+                    }
+                    break;
                 }
-                break;
+            case RequestCode.CopyColormapAndFree:
+                synchronized (_xServer) {
+                    if (bytesRemaining != 8) {
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
+                    } else {
+                        int id1 = _inputOutput.readInt();
+                        int id2 = _inputOutput.readInt();
+                        Resource r = _xServer.getResource(id2);
+
+                        if (r == null || r.getType() != Resource.COLORMAP)
+                            ErrorCode.write(this, ErrorCode.Colormap, opcode, id2);
+                        else if (!validResourceId(id1))
+                            ErrorCode.write(this, ErrorCode.IDChoice, opcode, id1);
+                        else ((Colormap) r).processCopyColormapAndFree(this, id1);
+                    }
+                    break;
+                }
             case RequestCode.FreeColormap:
             case RequestCode.InstallColormap:
             case RequestCode.UninstallColormap:
@@ -609,66 +651,76 @@ public class Client extends Thread {
             case RequestCode.StoreNamedColor:
             case RequestCode.QueryColors:
             case RequestCode.LookupColor:
-                if (bytesRemaining < 4) {
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    int id = _inputOutput.readInt();
-                    Resource r = _xServer.getResource(id);
-
-                    bytesRemaining -= 4;
-                    if (r == null || r.getType() != Resource.COLORMAP) {
-                        _inputOutput.readSkip(bytesRemaining);
-                        ErrorCode.write(this, ErrorCode.Colormap, opcode, id);
+                synchronized (_xServer) {
+                    if (bytesRemaining < 4) {
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
                     } else {
-                        r.processRequest(this, opcode, arg, bytesRemaining);
+                        int id = _inputOutput.readInt();
+                        Resource r = _xServer.getResource(id);
+
+                        bytesRemaining -= 4;
+                        if (r == null || r.getType() != Resource.COLORMAP) {
+                            _inputOutput.readSkip(bytesRemaining);
+                            ErrorCode.write(this, ErrorCode.Colormap, opcode, id);
+                        } else {
+                            r.processRequest(this, opcode, arg, bytesRemaining);
+                        }
                     }
+                    break;
                 }
-                break;
             case RequestCode.CreateCursor:
             case RequestCode.CreateGlyphCursor:
-                if (bytesRemaining != 28) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    int id = _inputOutput.readInt();    // Cursor ID.
-
-                    bytesRemaining -= 4;
-                    if (!validResourceId(id)) {
+                synchronized (_xServer) {
+                    if (bytesRemaining != 28) {
                         _inputOutput.readSkip(bytesRemaining);
-                        ErrorCode.write(this, ErrorCode.IDChoice, opcode, id);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
                     } else {
-                        Cursor.processCreateRequest(_xServer, this, opcode, id, bytesRemaining);
+                        int id = _inputOutput.readInt();    // Cursor ID.
+
+                        bytesRemaining -= 4;
+                        if (!validResourceId(id)) {
+                            _inputOutput.readSkip(bytesRemaining);
+                            ErrorCode.write(this, ErrorCode.IDChoice, opcode, id);
+                        } else {
+                            Cursor.processCreateRequest(_xServer, this, opcode, id, bytesRemaining);
+                        }
                     }
+                    break;
                 }
-                break;
             case RequestCode.FreeCursor:
             case RequestCode.RecolorCursor:
-                if (bytesRemaining < 4) {
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    int id = _inputOutput.readInt();
-                    Resource r = _xServer.getResource(id);
-
-                    bytesRemaining -= 4;
-                    if (r == null || r.getType() != Resource.CURSOR) {
-                        _inputOutput.readSkip(bytesRemaining);
-                        ErrorCode.write(this, ErrorCode.Colormap, opcode, id);
+                synchronized (_xServer) {
+                    if (bytesRemaining < 4) {
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
                     } else {
-                        r.processRequest(this, opcode, arg, bytesRemaining);
+                        int id = _inputOutput.readInt();
+                        Resource r = _xServer.getResource(id);
+
+                        bytesRemaining -= 4;
+                        if (r == null || r.getType() != Resource.CURSOR) {
+                            _inputOutput.readSkip(bytesRemaining);
+                            ErrorCode.write(this, ErrorCode.Colormap, opcode, id);
+                        } else {
+                            r.processRequest(this, opcode, arg, bytesRemaining);
+                        }
                     }
+                    break;
                 }
-                break;
             case RequestCode.QueryExtension:
-                _xServer.processQueryExtensionRequest(this, bytesRemaining);
-                break;
-            case RequestCode.ListExtensions:
-                if (bytesRemaining != 0) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    _xServer.writeListExtensions(this);
+                synchronized (_xServer) {
+                    _xServer.processQueryExtensionRequest(this, bytesRemaining);
+                    break;
                 }
-                break;
+            case RequestCode.ListExtensions:
+                synchronized (_xServer) {
+                    if (bytesRemaining != 0) {
+                        _inputOutput.readSkip(bytesRemaining);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
+                    } else {
+                        _xServer.writeListExtensions(this);
+                    }
+                    break;
+                }
             case RequestCode.QueryKeymap:
             case RequestCode.ChangeKeyboardMapping:
             case RequestCode.GetKeyboardMapping:
@@ -677,72 +729,94 @@ public class Client extends Thread {
             case RequestCode.GetModifierMapping:
             case RequestCode.GetKeyboardControl:
             case RequestCode.Bell:
-                _xServer.getKeyboard().processRequest(_xServer, this, opcode, arg, bytesRemaining);
-                break;
+                synchronized (_xServer) {
+                    _xServer.getKeyboard().processRequest(_xServer, this, opcode, arg, bytesRemaining);
+                    break;
+                }
             case RequestCode.SetScreenSaver:
-                if (bytesRemaining != 8) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    int timeout = _inputOutput.readShort();    // Timeout.
-                    int interval = _inputOutput.readShort();    // Interval
-                    int pb = _inputOutput.readByte();    // Prefer-blanking.
-                    int ae = _inputOutput.readByte();    // Allow-exposures.
+                synchronized (_xServer) {
+                    if (bytesRemaining != 8) {
+                        _inputOutput.readSkip(bytesRemaining);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
+                    } else {
+                        int timeout = _inputOutput.readShort();    // Timeout.
+                        int interval = _inputOutput.readShort();    // Interval
+                        int pb = _inputOutput.readByte();    // Prefer-blanking.
+                        int ae = _inputOutput.readByte();    // Allow-exposures.
 
-                    _inputOutput.readSkip(2);    // Unused.
-                    _xServer.setScreenSaver(timeout, interval, pb, ae);
+                        _inputOutput.readSkip(2);    // Unused.
+                        _xServer.setScreenSaver(timeout, interval, pb, ae);
+                    }
+                    break;
                 }
-                break;
             case RequestCode.GetScreenSaver:
-                if (bytesRemaining != 0) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    _xServer.writeScreenSaver(this);
+                synchronized (_xServer) {
+                    if (bytesRemaining != 0) {
+                        _inputOutput.readSkip(bytesRemaining);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
+                    } else {
+                        _xServer.writeScreenSaver(this);
+                    }
+                    break;
                 }
-                break;
             case RequestCode.ChangeHosts:
-                _xServer.processChangeHostsRequest(this, arg, bytesRemaining);
-                break;
+                synchronized (_xServer) {
+                    _xServer.processChangeHostsRequest(this, arg, bytesRemaining);
+                    break;
+                }
             case RequestCode.ListHosts:
-                if (bytesRemaining != 0) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    _xServer.writeListHosts(this);
+                synchronized (_xServer) {
+                    if (bytesRemaining != 0) {
+                        _inputOutput.readSkip(bytesRemaining);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
+                    } else {
+                        _xServer.writeListHosts(this);
+                    }
+                    break;
                 }
-                break;
             case RequestCode.SetAccessControl:
-                if (bytesRemaining != 0) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    _xServer.setAccessControl(arg == 1);
+                synchronized (_xServer) {
+                    if (bytesRemaining != 0) {
+                        _inputOutput.readSkip(bytesRemaining);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
+                    } else {
+                        _xServer.setAccessControl(arg == 1);
+                    }
+                    break;
                 }
-                break;
             case RequestCode.SetCloseDownMode:
-                processSetCloseDownModeRequest(arg, bytesRemaining);
-                break;
-            case RequestCode.KillClient:
-                processKillClientRequest(bytesRemaining);
-                break;
-            case RequestCode.ForceScreenSaver:
-                if (bytesRemaining != 0) {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Length, opcode, 0);
-                } else {
-                    _xServer.getScreen().blank(arg == 1);
+                synchronized (_xServer) {
+                    processSetCloseDownModeRequest(arg, bytesRemaining);
+                    break;
                 }
-                break;
+            case RequestCode.KillClient:
+                synchronized (_xServer) {
+                    processKillClientRequest(bytesRemaining);
+                    break;
+                }
+            case RequestCode.ForceScreenSaver:
+                synchronized (_xServer) {
+                    if (bytesRemaining != 0) {
+                        _inputOutput.readSkip(bytesRemaining);
+                        ErrorCode.write(this, ErrorCode.Length, opcode, 0);
+                    } else {
+                        _xServer.getScreen().blank(arg == 1);
+                    }
+                    break;
+                }
             case RequestCode.NoOperation:
-                _inputOutput.readSkip(bytesRemaining);
-                break;
+                synchronized (_xServer) {
+                    _inputOutput.readSkip(bytesRemaining);
+                    break;
+                }
             default:    // Opcode not implemented.
                 if (opcode < 0) {
                     Extensions.processRequest(_xServer, this, opcode, arg, bytesRemaining);
                 } else {
-                    _inputOutput.readSkip(bytesRemaining);
-                    ErrorCode.write(this, ErrorCode.Implementation, opcode, 0);
+                    synchronized (_xServer) {
+                        _inputOutput.readSkip(bytesRemaining);
+                        ErrorCode.write(this, ErrorCode.Implementation, opcode, 0);
+                    }
                 }
                 break;
         }

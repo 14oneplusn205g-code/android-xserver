@@ -244,6 +244,13 @@ public class XServer {
     }
 
     /**
+     * @return Timestamp of last reset.
+     */
+    public long getLastResetTimestamp(){
+        return _timestamp;
+    }
+
+    /**
      * Remove a client from the list of active clients.
      *
      * @param client The client to remove.

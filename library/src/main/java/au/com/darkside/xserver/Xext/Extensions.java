@@ -39,50 +39,61 @@ public class Extensions {
 
         switch (opcode) {
             case XGE:
-                if (bytesRemaining != 4) {
-                    io.readSkip(bytesRemaining);
-                    ErrorCode.write(client, ErrorCode.Length, opcode, 0);
-                } else {    // Assume arg == 0 (GEQueryVersion).
-                    short xgeMajor = (short) io.readShort();
-                    short xgeMinor = (short) io.readShort();
+                synchronized (xServer) {
+                    if (bytesRemaining != 4) {
+                        io.readSkip(bytesRemaining);
+                        ErrorCode.write(client, ErrorCode.Length, opcode, 0);
+                    } else {    // Assume arg == 0 (GEQueryVersion).
+                        short xgeMajor = (short) io.readShort();
+                        short xgeMinor = (short) io.readShort();
 
-                    synchronized (io) {
-                        Util.writeReplyHeader(client, arg);
-                        io.writeInt(0);    // Reply length.
-                        io.writeShort(xgeMajor);
-                        io.writeShort(xgeMinor);
-                        io.writePadBytes(20);
+                        synchronized (io) {
+                            Util.writeReplyHeader(client, arg);
+                            io.writeInt(0);    // Reply length.
+                            io.writeShort(xgeMajor);
+                            io.writeShort(xgeMinor);
+                            io.writePadBytes(20);
+                        }
+                        io.flush();
                     }
-                    io.flush();
+                    break;
                 }
-                break;
             case BigRequests:
-                if (bytesRemaining != 0) {
-                    io.readSkip(bytesRemaining);
-                    ErrorCode.write(client, ErrorCode.Length, opcode, 0);
-                } else {    // Assume arg == 0 (BigReqEnable).
-                    synchronized (io) {
-                        Util.writeReplyHeader(client, arg);
-                        io.writeInt(0);
-                        io.writeInt(Integer.MAX_VALUE);
-                        io.writePadBytes(20);
+                synchronized (xServer) {
+                    if (bytesRemaining != 0) {
+                        io.readSkip(bytesRemaining);
+                        ErrorCode.write(client, ErrorCode.Length, opcode, 0);
+                    } else {    // Assume arg == 0 (BigReqEnable).
+                        synchronized (io) {
+                            Util.writeReplyHeader(client, arg);
+                            io.writeInt(0);
+                            io.writeInt(Integer.MAX_VALUE);
+                            io.writePadBytes(20);
+                        }
+                        io.flush();
                     }
-                    io.flush();
+                    break;
                 }
-                break;
             case Shape:
-                XShape.processRequest(xServer, client, opcode, arg, bytesRemaining);
-                break;
+                synchronized (xServer) {
+                    XShape.processRequest(xServer, client, opcode, arg, bytesRemaining);
+                    break;
+                }
             case Sync:
+                // may be entered by multiple clients
                 XSync.processRequest(xServer, client, opcode, arg, bytesRemaining);
                 break;
             case XTEST:
-                XTest.processRequest(xServer, client, opcode, arg, bytesRemaining);
-                break;
+                synchronized (xServer) {
+                    XTest.processRequest(xServer, client, opcode, arg, bytesRemaining);
+                    break;
+                }
             default:
-                io.readSkip(bytesRemaining);    // Not implemented.
-                ErrorCode.write(client, ErrorCode.Implementation, opcode, 0);
-                break;
+                synchronized (xServer) {
+                    io.readSkip(bytesRemaining);    // Not implemented.
+                    ErrorCode.write(client, ErrorCode.Implementation, opcode, 0);
+                    break;
+                }
         }
     }
 }

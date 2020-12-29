@@ -78,7 +78,7 @@ public class EventCode {
      * @param arg    Optional first argument.
      * @throws IOException
      */
-    private static void writeHeader(Client client, byte code, int arg) throws IOException {
+    public static void writeHeader(Client client, byte code, int arg) throws IOException {
         InputOutput io = client.getInputOutput();
 
         io.writeByte((byte) code);
